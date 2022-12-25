@@ -1,5 +1,5 @@
 ModelArguments :
-  model_name_or_path : 'klue/bert-base' #'klue/bert-base' 
+  model_name_or_path : 'klue/bert-base' # ★ huggingface model name 
   config_name: null
   tokenizer_name : null
 
@@ -18,16 +18,18 @@ DataTrainingArguments :
   top_k_retrieval : 10
   
 
-TrainingArguments : 
+TrainingArguments :
+  # eval 하고 싶을경우 
+  # do_train :  False , do_eval : True 로 변경 
   do_train : True
-  do_eval : False
+  do_eval : False 
   
   # eval
   evaluation_strategy : "no" # "epoch", "step"
   eval_steps: null # "steps"
   
   # log and save
-  output_dir : './models/train_dataset'
+  output_dir : './models/train_dataset' # ★ model 저장경로
   overwrite_output_dir: False
   save_strategy: "steps" # "no" , "epoch"
   save_steps : 500 # int
