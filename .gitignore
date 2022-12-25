@@ -1,2 +1,5 @@
+code/__pycache__
 data/
 yaml/
+models/
+outputs/
