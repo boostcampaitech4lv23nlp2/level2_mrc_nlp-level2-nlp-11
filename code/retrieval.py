@@ -380,27 +380,18 @@ class SparseRetrieval:
 if __name__ == "__main__":
 
     import argparse
+    from omegaconf import OmegaConf
 
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument(
-        "--dataset_name", metavar="./data/train_dataset", type=str, help=""
-    )
-    parser.add_argument(
-        "--model_name_or_path",
-        metavar="bert-base-multilingual-cased",
-        type=str,
-        help="",
-    )
-    parser.add_argument("--data_path", metavar="./data", type=str, help="")
-    parser.add_argument(
-        "--context_path", metavar="wikipedia_documents", type=str, help=""
-    )
-    parser.add_argument("--use_faiss", metavar=False, type=bool, help="")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, default="retrieval_args")
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
+    conf = OmegaConf.load(f"../yaml/{args.config}.yaml")
+
+    retrieval_args = conf.RetrievalArguments
 
     # Test sparse
-    org_dataset = load_from_disk(args.dataset_name)
+    org_dataset = load_from_disk(retrieval_args.dataset_name)
     full_ds = concatenate_datasets(
         [
             org_dataset["train"].flatten_indices(),
@@ -412,17 +403,17 @@ if __name__ == "__main__":
 
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=False,)
+    tokenizer = AutoTokenizer.from_pretrained(retrieval_args.model_name_or_path, use_fast=False,)
 
     retriever = SparseRetrieval(
         tokenize_fn=tokenizer.tokenize,
-        data_path=args.data_path,
-        context_path=args.context_path,
+        data_path=retrieval_args.data_path,
+        context_path=retrieval_args.context_path,
     )
 
     query = "대통령을 포함한 미국의 행정부 견제권을 갖는 국가 기관은?"
 
-    if args.use_faiss:
+    if retrieval_args.use_faiss:
 
         # test single query
         with timer("single query by faiss"):

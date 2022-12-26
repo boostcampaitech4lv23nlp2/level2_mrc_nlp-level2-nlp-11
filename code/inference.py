@@ -34,19 +34,19 @@ from transformers import (
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
 
+import argparse
+from omegaconf import OmegaConf
+
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args =  conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
 
-    training_args.do_train = True
+    #training_args.do_train = True
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -110,6 +110,7 @@ def run_sparse_retrieval(
     retriever = SparseRetrieval(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
+
     retriever.get_sparse_embedding()
 
     if data_args.use_faiss:
@@ -306,4 +307,10 @@ def run_mrc(
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, default="inference_args")
+
+    args, _ = parser.parse_known_args()
+    conf = OmegaConf.load(f"../yaml/{args.config}.yaml")
+    main(conf)
