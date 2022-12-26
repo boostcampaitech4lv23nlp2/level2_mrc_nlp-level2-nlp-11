@@ -102,13 +102,25 @@ def run_mrc(
     # dataset을 전처리합니다.
     # training과 evaluation에서 사용되는 전처리는 아주 조금 다른 형태를 가집니다.
     if training_args.do_train:
-        column_names = datasets["train"].column_names
-    else:
-        column_names = datasets["validation"].column_names
+        #column_names = datasets["train"].column_names
+        train_column_name = datasets["train"].column_names
+        valid_column_name = datasets["validation"].column_names
 
-    question_column_name = "question" if "question" in column_names else column_names[0]
-    context_column_name = "context" if "context" in column_names else column_names[1]
-    answer_column_name = "answers" if "answers" in column_names else column_names[2]
+        train_question_column_name = "question" if "question" in train_column_name else train_column_name[0]
+        train_context_column_name = "context" if "context" in train_column_name else train_column_name[1]
+        train_answer_column_name = "answers" if "answers" in train_column_name else train_column_name[2]
+    
+    else:
+        valid_column_name = datasets["validation"].column_names
+
+
+    valid_question_column_name = "question" if "question" in valid_column_name else valid_column_name[0]
+    valid_context_column_name = "context" if "context" in valid_column_name else valid_column_name[1]
+    valid_answer_column_name = "answers" if "answers" in valid_column_name else valid_column_name[2]
+
+    # question_column_name = "question" if "question" in column_names else column_names[0]
+    # context_column_name = "context" if "context" in column_names else column_names[1]
+    # answer_column_name = "answers" if "answers" in column_names else column_names[2]
 
     # Padding에 대한 옵션을 설정합니다.
     # (question|context) 혹은 (context|question)로 세팅 가능합니다.
@@ -124,8 +136,8 @@ def run_mrc(
         # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
         # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
         tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
+            examples[train_question_column_name if pad_on_right else train_context_column_name],
+            examples[train_context_column_name if pad_on_right else train_question_column_name],
             truncation="only_second" if pad_on_right else "only_first",
             max_length=max_seq_length,
             stride=data_args.doc_stride,
@@ -154,7 +166,7 @@ def run_mrc(
 
             # 하나의 example이 여러개의 span을 가질 수 있습니다.
             sample_index = sample_mapping[i]
-            answers = examples[answer_column_name][sample_index]
+            answers = examples[train_answer_column_name][sample_index]
 
             # answer가 없을 경우 cls_index를 answer로 설정합니다(== example에서 정답이 없는 경우 존재할 수 있음).
             if len(answers["answer_start"]) == 0:
@@ -197,27 +209,14 @@ def run_mrc(
 
         return tokenized_examples
 
-    if training_args.do_train:
-        if "train" not in datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_dataset = datasets["train"]
-
-        # dataset에서 train feature를 생성합니다.
-        train_dataset = train_dataset.map(
-            prepare_train_features,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            remove_columns=column_names,
-            load_from_cache_file=not data_args.overwrite_cache,
-        )
 
     # Validation preprocessing
     def prepare_validation_features(examples):
         # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
         # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
         tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
+            examples[valid_question_column_name if pad_on_right else valid_context_column_name],
+            examples[valid_context_column_name if pad_on_right else valid_question_column_name],
             truncation="only_second" if pad_on_right else "only_first",
             max_length=max_seq_length,
             stride=data_args.doc_stride,
@@ -250,7 +249,20 @@ def run_mrc(
             ]
         return tokenized_examples
 
-    if training_args.do_eval:
+    if training_args.do_train:
+        if "train" not in datasets:
+            raise ValueError("--do_train requires a train dataset")
+        train_dataset = datasets["train"]
+
+        # dataset에서 train feature를 생성합니다.
+        train_dataset = train_dataset.map(
+            prepare_train_features,
+            batched=True,
+            num_proc=data_args.preprocessing_num_workers,
+            remove_columns=train_column_name,
+            load_from_cache_file=not data_args.overwrite_cache,
+        )
+
         eval_dataset = datasets["validation"]
 
         # Validation Feature 생성
@@ -258,9 +270,22 @@ def run_mrc(
             prepare_validation_features,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
-            remove_columns=column_names,
+            remove_columns=valid_column_name,
             load_from_cache_file=not data_args.overwrite_cache,
         )
+
+
+    # if training_args.do_eval:
+    #     eval_dataset = datasets["validation"]
+
+    #     # Validation Feature 생성
+    #     eval_dataset = eval_dataset.map(
+    #         prepare_validation_features,
+    #         batched=True,
+    #         num_proc=data_args.preprocessing_num_workers,
+    #         remove_columns=valid_answer_column_name,
+    #         load_from_cache_file=not data_args.overwrite_cache,
+    #     )
 
     # Data collator
     # flag가 True이면 이미 max length로 padding된 상태입니다.
@@ -288,7 +313,7 @@ def run_mrc(
 
         elif training_args.do_eval:
             references = [
-                {"id": ex["id"], "answers": ex[answer_column_name]}
+                {"id": ex["id"], "answers": ex[valid_answer_column_name]}
                 for ex in datasets["validation"]
             ]
             return EvalPrediction(
@@ -304,9 +329,9 @@ def run_mrc(
     trainer = QuestionAnsweringTrainer(
         model=model,
         args=training_args,
-        train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        eval_examples=datasets["validation"] if training_args.do_eval else None,
+        train_dataset=train_dataset,# if training_args.do_train else None,
+        eval_dataset=eval_dataset, #if training_args.do_eval else None,
+        eval_examples=datasets["validation"], #if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
         post_process_function=post_processing_function,
