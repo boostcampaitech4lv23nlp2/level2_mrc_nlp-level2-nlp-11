@@ -25,8 +25,8 @@ TrainingArguments :
   do_eval : False 
   
   # eval
-  evaluation_strategy : "no" # "epoch", "step"
-  eval_steps: null # "steps"
+  evaluation_strategy : "steps" # "no", "epoch", "steps"
+  eval_steps: 500 # int
   
   # log and save
   output_dir : './models/train_dataset' # ★ model 저장경로
