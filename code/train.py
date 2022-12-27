@@ -28,7 +28,8 @@ def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
-    model_args, data_args, training_args = conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments) 
+    model_args, data_args, training_args = conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
+
 
     # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
     # training_args.per_device_train_batch_size = 4
@@ -97,7 +98,7 @@ def run_mrc(
     datasets: DatasetDict,
     tokenizer,
     model,
-) -> NoReturn:
+) -> None:
 
     # dataset을 전처리합니다.
     # training과 evaluation에서 사용되는 전처리는 아주 조금 다른 형태를 가집니다.
@@ -119,10 +120,7 @@ def run_mrc(
         data_args, training_args, datasets, tokenizer
     )
 
-    # Train preprocessing / 전처리를 진행합니다.
-    def prepare_train_features(examples):
-        # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
-        # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
+    def prepare_tokenizer(examples) :
         tokenized_examples = tokenizer(
             examples[question_column_name if pad_on_right else context_column_name],
             examples[context_column_name if pad_on_right else question_column_name],
@@ -131,9 +129,16 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=True, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
+        return tokenized_examples
+
+    # Train preprocessing / 전처리를 진행합니다.
+    def prepare_train_features(examples):
+        # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
+        # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
+        tokenized_examples = prepare_tokenizer(examples)
 
         # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
         sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
@@ -197,35 +202,12 @@ def run_mrc(
 
         return tokenized_examples
 
-    if training_args.do_train:
-        if "train" not in datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_dataset = datasets["train"]
-
-        # dataset에서 train feature를 생성합니다.
-        train_dataset = train_dataset.map(
-            prepare_train_features,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            remove_columns=column_names,
-            load_from_cache_file=not data_args.overwrite_cache,
-        )
 
     # Validation preprocessing
     def prepare_validation_features(examples):
         # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
         # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
-        tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
-            truncation="only_second" if pad_on_right else "only_first",
-            max_length=max_seq_length,
-            stride=data_args.doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
-            padding="max_length" if data_args.pad_to_max_length else False,
-        )
+        tokenized_examples = prepare_tokenizer(examples)
 
         # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
         sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
@@ -250,17 +232,30 @@ def run_mrc(
             ]
         return tokenized_examples
 
-    if training_args.do_eval:
-        eval_dataset = datasets["validation"]
+    if training_args.do_train:
+        if "train" not in datasets:
+            raise ValueError("--do_train requires a train dataset")
+        train_dataset = datasets["train"]
 
-        # Validation Feature 생성
-        eval_dataset = eval_dataset.map(
-            prepare_validation_features,
+        # dataset에서 train feature를 생성합니다.
+        train_dataset = train_dataset.map(
+            prepare_train_features,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             remove_columns=column_names,
             load_from_cache_file=not data_args.overwrite_cache,
         )
+
+    eval_dataset = datasets["validation"]
+
+    # Validation Feature 생성
+    eval_dataset = eval_dataset.map(
+        prepare_validation_features,
+        batched=True,
+        num_proc=data_args.preprocessing_num_workers,
+        remove_columns=column_names,
+        load_from_cache_file=not data_args.overwrite_cache,
+    )
 
     # Data collator
     # flag가 True이면 이미 max length로 padding된 상태입니다.
@@ -305,8 +300,8 @@ def run_mrc(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        eval_examples=datasets["validation"] if training_args.do_eval else None,
+        eval_dataset=eval_dataset, #if training_args.do_eval else None,
+        eval_examples=datasets["validation"], #if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
         post_process_function=post_processing_function,
