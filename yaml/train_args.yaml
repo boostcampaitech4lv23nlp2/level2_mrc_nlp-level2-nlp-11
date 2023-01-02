@@ -1,0 +1,49 @@
+ModelArguments :
+  model_name_or_path : 'klue/bert-base' # ★ huggingface model name 
+  config_name: null
+  tokenizer_name : null
+
+
+DataTrainingArguments :
+  dataset_name : "../data/train_dataset"
+  overwrite_cache : False
+  preprocessing_num_workers : null
+  max_seq_length : 384
+  pad_to_max_length : False
+  doc_stride : 128
+  max_answer_length : 30
+  eval_retrieval : True
+  use_faiss: False
+  num_clusters : 64
+  top_k_retrieval : 10
+  
+
+TrainingArguments :
+  # eval 하고 싶을경우 
+  # do_train :  False , do_eval : True 로 변경 
+  do_train : True
+  do_eval : False 
+  
+  # eval
+  evaluation_strategy : "steps" # "no", "epoch", "steps"
+  eval_steps: 500 # int
+  
+  # log and save
+  output_dir : './models/train_dataset' # ★ model 저장경로
+  overwrite_output_dir: False
+  save_strategy: "steps" # "no" , "epoch"
+  save_steps : 500 # int
+  logging_steps: 500 # int
+  seed : 42
+
+  # train
+  warmup_steps: 0
+  warmup_ratio : 0.0
+
+  num_train_epochs : 3 # int
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  learning_rate: 5e-05
+  lr_scheduler_type: 'linear'
+  fp16 : True
+  max_steps: -1 # int

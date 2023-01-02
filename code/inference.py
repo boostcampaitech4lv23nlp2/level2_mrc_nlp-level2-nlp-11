@@ -20,7 +20,7 @@ from datasets import (
     load_from_disk,
     load_metric,
 )
-from retrieval import SparseRetrieval
+from retrieval import SparseRetrieval , BM25
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -34,19 +34,19 @@ from transformers import (
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
 
+import argparse
+from omegaconf import OmegaConf
+
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args =  conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
 
-    training_args.do_train = True
+    #training_args.do_train = True
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -107,11 +107,17 @@ def run_sparse_retrieval(
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
-    retriever = SparseRetrieval(
+    if data_args.bm25 :
+        retriever = BM25(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
-    retriever.get_sparse_embedding()
+    else :
+        retriever = SparseRetrieval(
+        tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
+    )
 
+    retriever.get_sparse_embedding()
+    
     if data_args.use_faiss:
         retriever.build_faiss(num_clusters=data_args.num_clusters)
         df = retriever.retrieve_faiss(
@@ -158,7 +164,7 @@ def run_mrc(
     datasets: DatasetDict,
     tokenizer,
     model,
-) -> NoReturn:
+) -> None:
 
     # eval 혹은 prediction에서만 사용함
     column_names = datasets["validation"].column_names
@@ -188,7 +194,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
@@ -306,4 +312,10 @@ def run_mrc(
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, default="inference_args")
+
+    args, _ = parser.parse_known_args()
+    conf = OmegaConf.load(f"../yaml/{args.config}.yaml")
+    main(conf)
