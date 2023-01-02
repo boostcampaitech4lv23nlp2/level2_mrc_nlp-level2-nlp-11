@@ -1,5 +1,8 @@
 version: 1
 
+Wandb:
+  notes: "write some notes"
+
 ModelArguments:
   model_name_or_path: "klue/bert-base" # ★ huggingface model name
   config_name: null
@@ -30,7 +33,7 @@ TrainingArguments:
 
   # log and save
   # output_dir: + [*var] # ★ model 저장경로
-  output_dir: "./models/train_dataset/${version}/"
+  output_dir: "../data/models/${version}/"
   overwrite_output_dir: False
   save_strategy: "steps" # "no" , "epoch"
   save_steps: 500 # int

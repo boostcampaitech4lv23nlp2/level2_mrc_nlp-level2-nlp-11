@@ -362,9 +362,10 @@ if __name__ == "__main__":
         project="Test Project",
         entity="mrc_11",
         name = conf.ModelArguments.model_name_or_path +'_' +str(conf.TrainingArguments.learning_rate) + "_" + str(conf.TrainingArguments.num_train_epochs) + '_' + str(conf.version),
-        dir="../data/"
+        dir="../data/",
+        config=dict(conf),
+        notes=conf.Wandb.notes
         )
-    wandb.config = conf
 
 
     main(conf)

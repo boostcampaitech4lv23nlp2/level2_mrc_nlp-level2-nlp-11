@@ -3,7 +3,7 @@ version: 1
 #infernce_args
 #model_name_or_path ! 바꿔주세요
 ModelArguments:
-  model_name_or_path: "./models/train_dataset/${version}" # ★ inference 할 model 경로
+  model_name_or_path: "../data/models/${version}" # ★ inference 할 model 경로
   config_name: null
   tokenizer_name: null
 
@@ -30,7 +30,7 @@ TrainingArguments:
   eval_steps: null # "steps"
 
   # log and save
-  output_dir: "./outputs/test_dataset/${version}" #  ★ inference output dir
+  output_dir: "../data/outputs/${version}" #  ★ inference output dir
   overwrite_output_dir: False
   save_strategy: "steps" # "no" , "epoch"
   save_steps: 500 # int
