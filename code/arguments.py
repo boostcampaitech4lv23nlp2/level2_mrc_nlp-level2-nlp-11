@@ -89,4 +89,5 @@ class DataTrainingArguments:
     )
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
-    )
+    ),
+    report_to: str = field(default='wandb')

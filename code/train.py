@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import wandb
 from typing import NoReturn
 
 from arguments import DataTrainingArguments, ModelArguments
@@ -27,9 +28,8 @@ logger = logging.getLogger(__name__)
 def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
-
+    
     model_args, data_args, training_args = conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
-
 
     # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
     # training_args.per_device_train_batch_size = 4
@@ -272,7 +272,7 @@ def run_mrc(
             features=features,
             predictions=predictions,
             max_answer_length=data_args.max_answer_length,
-            output_dir=training_args.output_dir,
+            output_dir=training_args.output_dir
         )
         # Metric을 구할 수 있도록 Format을 맞춰줍니다.
         formatted_predictions = [
@@ -352,10 +352,20 @@ def run_mrc(
 
 if __name__ == "__main__":
 
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-c", type=str, default="train_args")
 
     args, _ = parser.parse_known_args()
     conf = OmegaConf.load(f"../yaml/{args.config}.yaml")
+    wandb.init(
+        project="Test Project",
+        entity="mrc_11",
+        name = conf.ModelArguments.model_name_or_path +'_' +str(conf.TrainingArguments.learning_rate) + "_" + str(conf.TrainingArguments.num_train_epochs) + '_' + str(conf.version),
+        dir="../data/",
+        config=dict(conf),
+        notes=conf.Wandb.notes
+        )
+
 
     main(conf)
