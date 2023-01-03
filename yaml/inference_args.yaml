@@ -20,6 +20,7 @@ DataTrainingArguments:
   top_k_retrieval: 10
   use_faiss: False
   bm25: True # True => bm25 , False => tf-idf
+  else_tokenizer : null # konlpy_mecab, space
 
 TrainingArguments:
   #do_eval : False
