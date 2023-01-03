@@ -4,3 +4,4 @@ models/
 outputs/
 wandb/
 yaml/
+mecab/
