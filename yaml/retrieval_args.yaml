@@ -1,8 +1,10 @@
 #infernce_args 
 #model_name_or_path ! 바꿔주세요
 RetrievalArguments :
-  dataset_name : ./data/train_dataset
+  dataset_name : ../data/train_dataset
   model_name_or_path : bert-base-multilingual-cased #retrieval 모델 혹은 tokenizer
-  data_path : ./data
-  context_path : wikipedia_documents
+  data_path : ../data
+  context_path : wikipedia_documents.json
   use_faiss : False
+  bm25 : False
+  topk : 10
