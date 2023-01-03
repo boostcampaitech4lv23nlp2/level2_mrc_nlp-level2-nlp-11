@@ -33,7 +33,7 @@ from transformers import (
     set_seed,
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
-
+from utils import konlpy_mecab_tokenizer_fn , space_split_tokenizer_fn
 import argparse
 from omegaconf import OmegaConf
 
@@ -46,7 +46,7 @@ def main(conf):
 
     model_args, data_args, training_args =  conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
 
-    #training_args.do_train = True
+    #trining_args.do_train = True
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -107,6 +107,13 @@ def run_sparse_retrieval(
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
+
+    if data_args.else_tokenizer != None :
+        if data_args.else_tokenizer == "konlpy_mecab" :
+            tokenize_fn = konlpy_mecab_tokenizer_fn
+        elif data_args.else_tokenizer == "space" :
+            tokenize_fn = space_split_tokenizer_fn
+
     if data_args.bm25 :
         retriever = BM25(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
