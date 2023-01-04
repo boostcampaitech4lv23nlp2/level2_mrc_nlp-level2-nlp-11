@@ -1,0 +1,52 @@
+# ★ train_args 버전에 맞게 바꿔주세요.
+version: 1
+#infernce_args
+#model_name_or_path ! 바꿔주세요
+ModelArguments:
+  model_name_or_path: "../data/models/${version}" # ★ inference 할 model 경로
+  config_name: null
+  tokenizer_name: null
+
+DataTrainingArguments:
+  dataset_name: "../data/test_dataset/"
+  overwrite_cache: False
+  preprocessing_num_workers: null
+  max_seq_length: 384
+  pad_to_max_length: False
+  doc_stride: 128
+  max_answer_length: 30
+  eval_retrieval: True
+  num_clusters: 64
+  top_k_retrieval: 10
+  use_faiss: False
+  bm25: True # True => bm25 , False => tf-idf
+  else_tokenizer : null # konlpy_mecab, space
+
+TrainingArguments:
+  #do_eval : False
+  do_predict: True
+
+  # eval
+  evaluation_strategy: "no" # "epoch", "step"
+  eval_steps: null # "steps"
+
+  # log and save
+  output_dir: "../data/outputs/${version}" #  ★ inference output dir
+  overwrite_output_dir: False
+  save_strategy: "steps" # "no" , "epoch"
+  save_steps: 500 # int
+  logging_steps: 500 # int
+  seed: 42
+
+  # train
+  warmup_steps: 0
+  warmup_ratio: 0.0
+
+  num_train_epochs: 3 # int
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 8
+  learning_rate: 5e-05
+  lr_scheduler_type: "linear"
+  fp16: True
+  max_steps: -1 # int
+

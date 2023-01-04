@@ -1,5 +1,8 @@
 code/__pycache__
 data/
-yaml/
 models/
 outputs/
+wandb/
+yaml/
+mecab/
+ensemble/
