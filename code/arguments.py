@@ -75,8 +75,12 @@ class DataTrainingArguments:
         },
     )
     eval_retrieval: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether to run passage retrieval using sparse embedding."},
+    )
+    eval_retrieval_dense: bool = field(
+        default=True,
+        metadata={"help": "Whether to run passage retrieval using dense embedding."},
     )
     num_clusters: int = field(
         default=64, metadata={"help": "Define how many clusters to use for faiss."}

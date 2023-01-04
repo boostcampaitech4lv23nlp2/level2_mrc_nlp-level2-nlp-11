@@ -21,6 +21,7 @@ from datasets import (
     load_metric,
 )
 from retrieval import SparseRetrieval , BM25
+from dense_retireval import DenseRetrieval
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -33,6 +34,7 @@ from transformers import (
     set_seed,
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
+from model import BertEncoder, RobertaEncoder
 
 import argparse
 from omegaconf import OmegaConf
@@ -87,6 +89,35 @@ def main(conf):
     )
 
     # True일 경우 : run passage retrieval
+    if data_args.eval_retrieval_dense:
+
+        # wandb.init()
+        # 메모리가 부족한 경우 일부만 사용하세요 !
+        ## -- dense embedding 학습
+        args = TrainingArguments(
+            output_dir="dense_retireval",
+            evaluation_strategy="epoch",
+            learning_rate=3e-4,
+            per_device_train_batch_size=2,
+            per_device_eval_batch_size=2,
+            num_train_epochs=2,
+            weight_decay=0.01,
+            gradient_accumulation_steps=8,
+            report_to='wandb'
+            )
+        model_checkpoint = 'klue/bert-base'
+
+        # 혹시 위에서 사용한 encoder가 있다면 주석처리 후 진행해주세요 (CUDA ...)
+        tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+        p_encoder = BertEncoder.from_pretrained(model_checkpoint).to(args.device)
+        q_encoder = BertEncoder.from_pretrained(model_checkpoint).to(args.device)
+        # p_encoder = RobertaEncoder.from_pretrained(model_checkpoint).to(args.device)
+        # q_encoder = RobertaEncoder.from_pretrained(model_checkpoint).to(args.device)
+
+        datasets = run_dense_retrieval(
+            args, tokenizer, p_encoder, q_encoder, datasets, training_args, data_args,
+        )
+        
     if data_args.eval_retrieval:
         datasets = run_sparse_retrieval(
             tokenizer.tokenize, datasets, training_args, data_args,
@@ -96,6 +127,54 @@ def main(conf):
     if training_args.do_eval or training_args.do_predict:
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
+def run_dense_retrieval(
+    args,
+    tokenizer,
+    p_encoder,
+    q_encoder,
+    datasets: DatasetDict,
+    training_args: TrainingArguments,
+    data_args: DataTrainingArguments,
+    data_path: str = "../data",
+    context_path: str = "wikipedia_documents.json",
+) -> DatasetDict:
+
+    # Query에 맞는 Passage들을 Retrieval 합니다.
+    retriever = DenseRetrieval(
+        args=args, num_neg=10, tokenizer=tokenizer, p_encoder=p_encoder, q_encoder=q_encoder)
+    retriever.train()
+
+    df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+    
+    # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
+    if training_args.do_predict:
+        f = Features(
+            {
+                "context": Value(dtype="string", id=None),
+                "id": Value(dtype="string", id=None),
+                "question": Value(dtype="string", id=None),
+                # TODO: doc_score의 dtype은 무엇인가??? 
+            }
+        )
+    # train data 에 대해선 정답이 존재하므로 id question context answer 로 데이터셋이 구성됩니다.
+    elif training_args.do_eval:
+        f = Features(
+            {
+                "answers": Sequence(
+                    feature={
+                        "text": Value(dtype="string", id=None),
+                        "answer_start": Value(dtype="int32", id=None),
+                    },
+                    length=-1,
+                    id=None,
+                ),
+                "context": Value(dtype="string", id=None),
+                "id": Value(dtype="string", id=None),
+                "question": Value(dtype="string", id=None),
+            }
+        )
+    datasets = DatasetDict({"validation": Dataset.from_pandas(df, features=f)})
+    return datasets
 
 def run_sparse_retrieval(
     tokenize_fn: Callable[[str], List[str]],
