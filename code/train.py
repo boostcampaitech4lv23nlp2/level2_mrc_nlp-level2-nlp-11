@@ -4,7 +4,7 @@ import sys
 from typing import NoReturn
 
 from arguments import DataTrainingArguments, ModelArguments
-from datasets import DatasetDict, load_from_disk, load_metric
+from datasets import DatasetDict, load_from_disk, load_metric, load_dataset
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -51,9 +51,14 @@ def main(conf):
 
     # TODO: 더 다양한 변수의 seed 고정 필요.
     # 모델을 초기화하기 전에 난수를 고정합니다.
+    print(training_args)
     set_seed(training_args.seed)
-
-    datasets = load_from_disk(data_args.dataset_name)
+    if data_args.isbookdata == True:
+        datasets = load_dataset('csv', data_files='../data/book/dataset.csv')['train']
+        datasets = datasets.train_test_split(test_size=0.1)
+        datasets['validation'] = datasets['test']
+    else:
+        datasets = load_from_disk(data_args.dataset_name)
     print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
@@ -106,6 +111,7 @@ def run_mrc(
         column_names = datasets["train"].column_names
     else:
         column_names = datasets["validation"].column_names
+    
 
     question_column_name = "question" if "question" in column_names else column_names[0]
     context_column_name = "context" if "context" in column_names else column_names[1]
@@ -160,6 +166,7 @@ def run_mrc(
             # 하나의 example이 여러개의 span을 가질 수 있습니다.
             sample_index = sample_mapping[i]
             answers = examples[answer_column_name][sample_index]
+            answers = eval(answers)
 
             # answer가 없을 경우 cls_index를 answer로 설정합니다(== example에서 정답이 없는 경우 존재할 수 있음).
             if len(answers["answer_start"]) == 0:
@@ -283,7 +290,7 @@ def run_mrc(
 
         elif training_args.do_eval:
             references = [
-                {"id": ex["id"], "answers": ex[answer_column_name]}
+                {"id": ex["id"], "answers": eval(ex[answer_column_name])}
                 for ex in datasets["validation"]
             ]
             return EvalPrediction(
@@ -314,7 +321,7 @@ def run_mrc(
             checkpoint = last_checkpoint
         elif os.path.isdir(model_args.model_name_or_path):
             checkpoint = model_args.model_name_or_path
-        else:
+        else:apt-get autoremove --purge 'cuda*'
             checkpoint = None
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()  # Saves the tokenizer too for easy upload
