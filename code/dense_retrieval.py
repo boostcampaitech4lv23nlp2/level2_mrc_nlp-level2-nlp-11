@@ -357,17 +357,10 @@ class DenseRetrieval:
                     # Calculate similarity score & loss
                     p_outputs = p_outputs.view(batch_size, self.num_neg + 1, -1)
                     q_outputs = q_outputs.view(batch_size, 1, -1)
-                    print(1)
-                    print(q_outputs.shape)
+
                     sim_scores = torch.bmm(q_outputs, torch.transpose(p_outputs, 1, 2)).squeeze()  #(batch_size, num_neg + 1)
-                    print(2)
-                    print(sim_scores.shape)
                     sim_scores = sim_scores.view(batch_size, -1)
-                    print(3)
-                    print(sim_scores.shape)
                     sim_scores = F.log_softmax(sim_scores, dim=1)
-                    print(4)
-                    print(sim_scores.shape)
 
                     loss = F.nll_loss(sim_scores, targets)
                     f.write(str(loss)+'\n')

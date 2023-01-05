@@ -21,7 +21,7 @@ from datasets import (
     load_metric,
 )
 from retrieval import SparseRetrieval , BM25
-from dense_retireval import DenseRetrieval
+from dense_retrieval import DenseRetrieval
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -31,6 +31,7 @@ from transformers import (
     EvalPrediction,
     HfArgumentParser,
     TrainingArguments,
+    RobertaForQuestionAnswering,
     set_seed,
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
@@ -82,11 +83,16 @@ def main(conf):
         else model_args.model_name_or_path,
         use_fast=True,
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
+    model = RobertaForQuestionAnswering.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
     )
+    # model = AutoModelForQuestionAnswering.from_pretrained(
+    #     model_args.model_name_or_path,
+    #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
+    #     config=config,
+    # )
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval_dense:
