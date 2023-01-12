@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
+from transformers import TrainingArguments
 
 
 @dataclass
@@ -91,3 +92,11 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Whether to build with faiss"}
     ),
     report_to: str = field(default='wandb')
+
+@dataclass
+class TrainArguments(TrainingArguments):
+    aug_mod: str = field(default="none", metadata={"help": "choose among three cutoffs(choices, token, feature, span). none is nothing"}),
+    aug_cutoff_ratio: float = field(default=0.1),
+    aug_ce_loss: float = field(default=1.0),
+    aug_js_loss: float = field(default=1.0)
+

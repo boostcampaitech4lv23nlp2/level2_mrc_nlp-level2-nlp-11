@@ -4,7 +4,7 @@ Wandb:
   notes: "write some notes"
 
 ModelArguments:
-  model_name_or_path: "klue/bert-base" # ★ huggingface model name
+  model_name_or_path: "klue/roberta-small" # ★ huggingface model name , bert-base로 하면 cutoff 적용 못함 즉 aug_mod를 none으로 바꿔줘야함
   config_name: null
   tokenizer_name: null
 
@@ -20,12 +20,19 @@ DataTrainingArguments:
   use_faiss: False
   num_clusters: 64
   top_k_retrieval: 10
+  augument_koqurd: True
 
 TrainingArguments:
   # eval 하고 싶을경우
   # do_train :  False , do_eval : True 로 변경
   do_train: True
   do_eval: False
+
+  # augumentation
+  aug_mod: "none" #"none", "span", "feature", "token",
+  aug_cutoff_ratio: 0.1
+  aug_ce_loss: 1.0
+  aug_js_loss: 1.0
 
   # eval
   evaluation_strategy: "steps" # "no", "epoch", "steps"
@@ -44,7 +51,7 @@ TrainingArguments:
   warmup_steps: 0
   warmup_ratio: 0.0
 
-  num_train_epochs: 3 # int
+  num_train_epochs: 2 # int
   per_device_train_batch_size: 8
   per_device_eval_batch_size: 8
   learning_rate: 5e-05

@@ -4,7 +4,7 @@ import sys
 import wandb
 from typing import NoReturn
 
-from arguments import DataTrainingArguments, ModelArguments
+from arguments import DataTrainingArguments, ModelArguments, TrainArguments
 from datasets import DatasetDict, load_from_disk, load_metric
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
@@ -29,7 +29,7 @@ def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
     
-    model_args, data_args, training_args = conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
+    model_args, data_args, training_args = conf.ModelArguments , conf.DataTrainingArguments , TrainArguments(**conf.TrainingArguments)
 
     # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
     # training_args.per_device_train_batch_size = 4
@@ -54,7 +54,8 @@ def main(conf):
     set_seed(training_args.seed)
 
     datasets = load_from_disk(data_args.dataset_name)
-    print(datasets)
+    # datasets = load_from_disk('../data/koqurd_mrc/train_dataset/train')
+    # print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
@@ -129,7 +130,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            return_token_type_ids=True, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
         return tokenized_examples
@@ -235,7 +236,8 @@ def run_mrc(
     if training_args.do_train:
         if "train" not in datasets:
             raise ValueError("--do_train requires a train dataset")
-        train_dataset = datasets["train"]
+        train_dataset = load_from_disk('../data/koqurd_mrc/train_dataset/train')
+        # train_dataset = datasets["train"]
 
         # dataset에서 train feature를 생성합니다.
         train_dataset = train_dataset.map(
@@ -316,6 +318,15 @@ def run_mrc(
             checkpoint = model_args.model_name_or_path
         else:
             checkpoint = None
+        
+        if training_args.aug_mod == "span":
+            trainer.training_step = trainer.training_step_with_span_cutoff
+        elif training_args.aug_mod == "feature":
+            trainer.training_step = trainer.training_step_with_dim_cutoff
+        elif training_args.aug_mod == "token":
+            trainer.training_step = trainer.training_step_with_token_cutoff
+        else:
+            pass
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
