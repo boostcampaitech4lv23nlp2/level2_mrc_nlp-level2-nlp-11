@@ -1,9 +1,10 @@
 import logging
 import os
 import sys
+import wandb
 from typing import NoReturn
 
-from arguments import DataTrainingArguments, ModelArguments
+from arguments import DataTrainingArguments, ModelArguments, TrainArguments
 from datasets import DatasetDict, load_from_disk, load_metric
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
@@ -18,24 +19,22 @@ from transformers import (
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
 
+import argparse
+from omegaconf import OmegaConf
+
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
-
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    print(model_args.model_name_or_path)
+    
+    model_args, data_args, training_args = conf.ModelArguments , conf.DataTrainingArguments , TrainArguments(**conf.TrainingArguments)
 
     # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
     # training_args.per_device_train_batch_size = 4
     # print(training_args.per_device_train_batch_size)
     # TODO: TrainingArguments를 아래와 같이 관리하면 코드가 너무 복잡함. 좀 더 체계적인 방법 필요.
-    training_args.fp16 = True
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -55,7 +54,8 @@ def main():
     set_seed(training_args.seed)
 
     datasets = load_from_disk(data_args.dataset_name)
-    print(datasets)
+    # datasets = load_from_disk('../data/koqurd_mrc/train_dataset/train')
+    # print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
@@ -99,7 +99,7 @@ def run_mrc(
     datasets: DatasetDict,
     tokenizer,
     model,
-) -> NoReturn:
+) -> None:
 
     # dataset을 전처리합니다.
     # training과 evaluation에서 사용되는 전처리는 아주 조금 다른 형태를 가집니다.
@@ -121,10 +121,7 @@ def run_mrc(
         data_args, training_args, datasets, tokenizer
     )
 
-    # Train preprocessing / 전처리를 진행합니다.
-    def prepare_train_features(examples):
-        # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
-        # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
+    def prepare_tokenizer(examples) :
         tokenized_examples = tokenizer(
             examples[question_column_name if pad_on_right else context_column_name],
             examples[context_column_name if pad_on_right else question_column_name],
@@ -133,9 +130,16 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
+        return tokenized_examples
+
+    # Train preprocessing / 전처리를 진행합니다.
+    def prepare_train_features(examples):
+        # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
+        # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
+        tokenized_examples = prepare_tokenizer(examples)
 
         # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
         sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
@@ -199,35 +203,12 @@ def run_mrc(
 
         return tokenized_examples
 
-    if training_args.do_train:
-        if "train" not in datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_dataset = datasets["train"]
-
-        # dataset에서 train feature를 생성합니다.
-        train_dataset = train_dataset.map(
-            prepare_train_features,
-            batched=True,
-            num_proc=data_args.preprocessing_num_workers,
-            remove_columns=column_names,
-            load_from_cache_file=not data_args.overwrite_cache,
-        )
 
     # Validation preprocessing
     def prepare_validation_features(examples):
         # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
         # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
-        tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
-            truncation="only_second" if pad_on_right else "only_first",
-            max_length=max_seq_length,
-            stride=data_args.doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
-            padding="max_length" if data_args.pad_to_max_length else False,
-        )
+        tokenized_examples = prepare_tokenizer(examples)
 
         # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
         sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
@@ -252,17 +233,31 @@ def run_mrc(
             ]
         return tokenized_examples
 
-    if training_args.do_eval:
-        eval_dataset = datasets["validation"]
+    if training_args.do_train:
+        if "train" not in datasets:
+            raise ValueError("--do_train requires a train dataset")
+        train_dataset = load_from_disk('../data/koqurd_mrc/train_dataset/train')
+        # train_dataset = datasets["train"]
 
-        # Validation Feature 생성
-        eval_dataset = eval_dataset.map(
-            prepare_validation_features,
+        # dataset에서 train feature를 생성합니다.
+        train_dataset = train_dataset.map(
+            prepare_train_features,
             batched=True,
             num_proc=data_args.preprocessing_num_workers,
             remove_columns=column_names,
             load_from_cache_file=not data_args.overwrite_cache,
         )
+
+    eval_dataset = datasets["validation"]
+
+    # Validation Feature 생성
+    eval_dataset = eval_dataset.map(
+        prepare_validation_features,
+        batched=True,
+        num_proc=data_args.preprocessing_num_workers,
+        remove_columns=column_names,
+        load_from_cache_file=not data_args.overwrite_cache,
+    )
 
     # Data collator
     # flag가 True이면 이미 max length로 padding된 상태입니다.
@@ -279,7 +274,7 @@ def run_mrc(
             features=features,
             predictions=predictions,
             max_answer_length=data_args.max_answer_length,
-            output_dir=training_args.output_dir,
+            output_dir=training_args.output_dir
         )
         # Metric을 구할 수 있도록 Format을 맞춰줍니다.
         formatted_predictions = [
@@ -307,8 +302,8 @@ def run_mrc(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
-        eval_dataset=eval_dataset if training_args.do_eval else None,
-        eval_examples=datasets["validation"] if training_args.do_eval else None,
+        eval_dataset=eval_dataset, #if training_args.do_eval else None,
+        eval_examples=datasets["validation"], #if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
         post_process_function=post_processing_function,
@@ -323,6 +318,15 @@ def run_mrc(
             checkpoint = model_args.model_name_or_path
         else:
             checkpoint = None
+        
+        if training_args.aug_mod == "span":
+            trainer.training_step = trainer.training_step_with_span_cutoff
+        elif training_args.aug_mod == "feature":
+            trainer.training_step = trainer.training_step_with_dim_cutoff
+        elif training_args.aug_mod == "token":
+            trainer.training_step = trainer.training_step_with_token_cutoff
+        else:
+            pass
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
         trainer.save_model()  # Saves the tokenizer too for easy upload
 
@@ -358,4 +362,21 @@ def run_mrc(
 
 
 if __name__ == "__main__":
-    main()
+
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, default="train_args")
+
+    args, _ = parser.parse_known_args()
+    conf = OmegaConf.load(f"../yaml/{args.config}.yaml")
+    wandb.init(
+        project="Test Project",
+        entity="mrc_11",
+        name = conf.ModelArguments.model_name_or_path +'_' +str(conf.TrainingArguments.learning_rate) + "_" + str(conf.TrainingArguments.num_train_epochs) + '_' + str(conf.version),
+        dir="../data/",
+        config=dict(conf),
+        notes=conf.Wandb.notes
+        )
+
+
+    main(conf)

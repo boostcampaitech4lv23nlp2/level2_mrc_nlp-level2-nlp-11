@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
+from transformers import TrainingArguments
 
 
 @dataclass
@@ -75,8 +76,12 @@ class DataTrainingArguments:
         },
     )
     eval_retrieval: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Whether to run passage retrieval using sparse embedding."},
+    )
+    eval_retrieval_dense: bool = field(
+        default=True,
+        metadata={"help": "Whether to run passage retrieval using dense embedding."},
     )
     num_clusters: int = field(
         default=64, metadata={"help": "Define how many clusters to use for faiss."}
@@ -89,4 +94,13 @@ class DataTrainingArguments:
     )
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
-    )
+    ),
+    report_to: str = field(default='wandb')
+
+@dataclass
+class TrainArguments(TrainingArguments):
+    aug_mod: str = field(default="none", metadata={"help": "choose among three cutoffs(choices, token, feature, span). none is nothing"}),
+    aug_cutoff_ratio: float = field(default=0.1),
+    aug_ce_loss: float = field(default=1.0),
+    aug_js_loss: float = field(default=1.0)
+

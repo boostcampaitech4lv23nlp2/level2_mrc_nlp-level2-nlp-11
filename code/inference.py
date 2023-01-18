@@ -20,7 +20,8 @@ from datasets import (
     load_from_disk,
     load_metric,
 )
-from retrieval import SparseRetrieval
+from retrieval import SparseRetrieval , BM25
+from dense_retrieval import DenseRetrieval
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -30,23 +31,26 @@ from transformers import (
     EvalPrediction,
     HfArgumentParser,
     TrainingArguments,
+    RobertaForQuestionAnswering,
     set_seed,
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
+from utils import konlpy_mecab_tokenizer_fn , space_split_tokenizer_fn
+from model import BertEncoder, RobertaEncoder
+
+import argparse
+from omegaconf import OmegaConf
 
 logger = logging.getLogger(__name__)
 
 
-def main():
+def main(conf):
     # 가능한 arguments 들은 ./arguments.py 나 transformer package 안의 src/transformers/training_args.py 에서 확인 가능합니다.
     # --help flag 를 실행시켜서 확인할 수 도 있습니다.
 
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args =  conf.ModelArguments , conf.DataTrainingArguments , TrainingArguments(**conf.TrainingArguments)
 
-    training_args.do_train = True
+    #trining_args.do_train = True
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -80,13 +84,47 @@ def main():
         else model_args.model_name_or_path,
         use_fast=True,
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
+    model = RobertaForQuestionAnswering.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
     )
+    # model = AutoModelForQuestionAnswering.from_pretrained(
+    #     model_args.model_name_or_path,
+    #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
+    #     config=config,
+    # )
 
     # True일 경우 : run passage retrieval
+    if data_args.eval_retrieval_dense:
+
+        # wandb.init()
+        # 메모리가 부족한 경우 일부만 사용하세요 !
+        ## -- dense embedding 학습
+        args = TrainingArguments(
+            output_dir="dense_retireval",
+            evaluation_strategy="epoch",
+            learning_rate=3e-4,
+            per_device_train_batch_size=2,
+            per_device_eval_batch_size=2,
+            num_train_epochs=2,
+            weight_decay=0.01,
+            gradient_accumulation_steps=8,
+            report_to='wandb'
+            )
+        model_checkpoint = 'klue/bert-base'
+
+        # 혹시 위에서 사용한 encoder가 있다면 주석처리 후 진행해주세요 (CUDA ...)
+        tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+        p_encoder = BertEncoder.from_pretrained(model_checkpoint).to(args.device)
+        q_encoder = BertEncoder.from_pretrained(model_checkpoint).to(args.device)
+        # p_encoder = RobertaEncoder.from_pretrained(model_checkpoint).to(args.device)
+        # q_encoder = RobertaEncoder.from_pretrained(model_checkpoint).to(args.device)
+
+        datasets = run_dense_retrieval(
+            args, tokenizer, p_encoder, q_encoder, datasets, training_args, data_args,
+        )
+        
     if data_args.eval_retrieval:
         datasets = run_sparse_retrieval(
             tokenizer.tokenize, datasets, training_args, data_args,
@@ -96,6 +134,54 @@ def main():
     if training_args.do_eval or training_args.do_predict:
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
+def run_dense_retrieval(
+    args,
+    tokenizer,
+    p_encoder,
+    q_encoder,
+    datasets: DatasetDict,
+    training_args: TrainingArguments,
+    data_args: DataTrainingArguments,
+    data_path: str = "../data",
+    context_path: str = "wikipedia_documents.json",
+) -> DatasetDict:
+
+    # Query에 맞는 Passage들을 Retrieval 합니다.
+    retriever = DenseRetrieval(
+        args=args, num_neg=10, tokenizer=tokenizer, p_encoder=p_encoder, q_encoder=q_encoder)
+    retriever.train()
+
+    df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+    
+    # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
+    if training_args.do_predict:
+        f = Features(
+            {
+                "context": Value(dtype="string", id=None),
+                "id": Value(dtype="string", id=None),
+                "question": Value(dtype="string", id=None),
+                # TODO: doc_score의 dtype은 무엇인가??? 
+            }
+        )
+    # train data 에 대해선 정답이 존재하므로 id question context answer 로 데이터셋이 구성됩니다.
+    elif training_args.do_eval:
+        f = Features(
+            {
+                "answers": Sequence(
+                    feature={
+                        "text": Value(dtype="string", id=None),
+                        "answer_start": Value(dtype="int32", id=None),
+                    },
+                    length=-1,
+                    id=None,
+                ),
+                "context": Value(dtype="string", id=None),
+                "id": Value(dtype="string", id=None),
+                "question": Value(dtype="string", id=None),
+            }
+        )
+    datasets = DatasetDict({"validation": Dataset.from_pandas(df, features=f)})
+    return datasets
 
 def run_sparse_retrieval(
     tokenize_fn: Callable[[str], List[str]],
@@ -107,11 +193,24 @@ def run_sparse_retrieval(
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
-    retriever = SparseRetrieval(
+
+    if data_args.else_tokenizer != None :
+        if data_args.else_tokenizer == "konlpy_mecab" :
+            tokenize_fn = konlpy_mecab_tokenizer_fn
+        elif data_args.else_tokenizer == "space" :
+            tokenize_fn = space_split_tokenizer_fn
+
+    if data_args.bm25 :
+        retriever = BM25(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
-    retriever.get_sparse_embedding()
+    else :
+        retriever = SparseRetrieval(
+        tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
+    )
 
+    retriever.get_sparse_embedding()
+    
     if data_args.use_faiss:
         retriever.build_faiss(num_clusters=data_args.num_clusters)
         df = retriever.retrieve_faiss(
@@ -158,7 +257,7 @@ def run_mrc(
     datasets: DatasetDict,
     tokenizer,
     model,
-) -> NoReturn:
+) -> None:
 
     # eval 혹은 prediction에서만 사용함
     column_names = datasets["validation"].column_names
@@ -188,7 +287,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            # return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
@@ -306,4 +405,10 @@ def run_mrc(
 
 
 if __name__ == "__main__":
-    main()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, default="inference_args")
+
+    args, _ = parser.parse_known_args()
+    conf = OmegaConf.load(f"../yaml/{args.config}.yaml")
+    main(conf)
